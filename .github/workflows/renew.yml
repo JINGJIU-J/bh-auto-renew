@@ -1,0 +1,57 @@
+name: bot-hosting auto renew
+
+on:
+  schedule:
+    # 每天北京时间 13:00 跑一次。脚本自己会判断"是否已到可续约时间"，
+    # 没到就只打日志退出，所以每天跑是安全的，也能避免因单次失败而断约。
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bot-hosting-renew
+  cancel-in-progress: false
+
+jobs:
+  renew:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # 让 SeleniumBase 装好与镜像里 Chrome 匹配的驱动
+          seleniumbase install chromedriver
+
+      - name: Run renew
+        env:
+          SESSION_TOKEN: ${{ secrets.SESSION_TOKEN }}
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          PROXY_SERVER: ${{ secrets.PROXY_SERVER }}
+          HEADLESS: "true"
+        run: python renew.py
+
+      - name: Upload failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: renew-debug
+          path: |
+            screenshots
+            *.png
+          if-no-files-found: ignore
+          retention-days: 3
